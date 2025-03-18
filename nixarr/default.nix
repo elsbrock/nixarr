@@ -34,6 +34,11 @@ with lib; let
         chown -R streamer:root "${cfg.jellyfin.stateDir}"
         find "${cfg.jellyfin.stateDir}" \( -type d -exec chmod 0700 {} + -true \) -o \( -exec chmod 0600 {} + \)
       ''
+      + strings.optionalString cfg.plex.enable ''
+        chown -R streamer:media "${cfg.mediaDir}/library"
+        chown -R streamer:root "${cfg.plex.stateDir}"
+        find "${cfg.plex.stateDir}" \( -type d -exec chmod 0700 {} + -true \) -o \( -exec chmod 0600 {} + \)
+      ''
       + strings.optionalString cfg.transmission.enable ''
         chown -R torrenter:media "${cfg.mediaDir}/torrents"
         chown -R torrenter:cross-seed "${cfg.transmission.stateDir}"
@@ -90,6 +95,7 @@ in {
     ./autobrr
     ./jellyfin
     ./jellyseerr
+    ./plex
     ./bazarr
     ./ddns
     ./radarr
@@ -101,6 +107,7 @@ in {
     ./transmission
     ./sabnzbd
     ./recyclarr
+    ./monitoring
     ../util
   ];
 
@@ -131,6 +138,7 @@ in {
         - [Autobrr](#nixarr.autobrr.enable)
         - [Jellyfin](#nixarr.jellyfin.enable)
         - [Jellyseerr](#nixarr.jellyseerr.enable)
+        - [Plex](#nixarr.plex.enable)
         - [Bazarr](#nixarr.bazarr.enable)
         - [Lidarr](#nixarr.lidarr.enable)
         - [Prowlarr](#nixarr.prowlarr.enable)
@@ -250,6 +258,33 @@ in {
           not covered in by this module that uses the VPN.
         '';
         example = [46382 38473];
+      };
+    };
+
+    monitoring = {
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        example = true;
+        description = ''
+          Whether to enable Prometheus monitoring for nixarr services.
+          This will configure various exporters for services that support them.
+        '';
+      };
+
+      exporters = mkOption {
+        type = types.attrsOf types.bool;
+        default = {};
+        example = {
+          transmission = true;
+          jellyfin = false;
+        };
+        description = ''
+          Fine-grained control over which service exporters to enable.
+          By default, exporters for all enabled services will be activated
+          when monitoring is enabled. Set a service to false to disable
+          its exporter specifically.
+        '';
       };
     };
   };

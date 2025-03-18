@@ -2,7 +2,6 @@
   config,
   lib,
   pkgs,
-  nixpkgs-sonarr,
   ...
 }:
 with lib; let
@@ -17,12 +16,10 @@ in {
       example = true;
       description = ''
         Whether or not to enable the Sonarr service.
-
-        **Required options:** [`nixarr.enable`](#nixarr.enable)
       '';
     };
 
-    package = mkPackageOption nixpkgs-sonarr.legacyPackages."${pkgs.system}".pkgs "sonarr" {};
+    package = mkPackageOption pkgs "sonarr" {};
 
     stateDir = mkOption {
       type = types.path;
@@ -63,15 +60,8 @@ in {
     };
   };
 
-  config = mkIf cfg.enable {
+  config = mkIf (nixarr.enable && cfg.enable) {
     assertions = [
-      {
-        assertion = cfg.enable -> nixarr.enable;
-        message = ''
-          The nixarr.sonarr.enable option requires the
-          nixarr.enable option to be set, but it was not.
-        '';
-      }
       {
         assertion = cfg.vpn.enable -> nixarr.vpn.enable;
         message = ''

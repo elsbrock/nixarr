@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Added:
+- Plex service
+
+Updated:
+- If `nixarr.enable` is not enabled other services will automatically now
+  be disabled, instead of throwing an assertion error.
+
+## 2025-03-17
+
+Added:
+- Recyclarr service
+
+Removed:
+- Sonarr default package now defaults to current nixpkgs sonarr package again.
+
 ## 2025-01-18
 
 Added:
@@ -22,6 +39,11 @@ Updated:
 
 Updated:
 - VPNConfinement submodule
+
+## 2024-05-09
+
+Fixed:
+- Jellyfin now has highest IO priority and transmission has lowest
 
 ## 2024-03-12
 

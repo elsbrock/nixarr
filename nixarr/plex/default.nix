@@ -5,35 +5,35 @@
   ...
 }:
 with lib; let
-  cfg = config.nixarr.jellyfin;
-  defaultPort = 8096;
+  cfg = config.nixarr.plex;
+  defaultPort = 32400;
   nixarr = config.nixarr;
 in {
-  options.nixarr.jellyfin = {
+  options.nixarr.plex = {
     enable = mkOption {
       type = types.bool;
       default = false;
       example = true;
       description = ''
-        Whether or not to enable the Jellyfin service.
+        Whether or not to enable the Plex service.
       '';
     };
 
-    package = mkPackageOption pkgs "jellyfin" {};
+    package = mkPackageOption pkgs "plexmediaserver" {};
 
     stateDir = mkOption {
       type = types.path;
-      default = "${nixarr.stateDir}/jellyfin";
-      defaultText = literalExpression ''"''${nixarr.stateDir}/jellyfin"'';
-      example = "/nixarr/.state/jellyfin";
+      default = "${nixarr.stateDir}/plex";
+      defaultText = literalExpression ''"''${nixarr.stateDir}/plex"'';
+      example = "/nixarr/.state/plex";
       description = ''
-        The location of the state directory for the Jellyfin service.
+        The location of the state directory for the Plex service.
 
         > **Warning:** Setting this to any path, where the subpath is not
         > owned by root, will fail! For example:
         >
         > ```nix
-        >   stateDir = /home/user/nixarr/.state/jellyfin
+        >   stateDir = /home/user/nixarr/.state/plex
         > ```
         >
         > Is not supported, because `/home/user` is owned by `user`.
@@ -42,10 +42,10 @@ in {
 
     openFirewall = mkOption {
       type = types.bool;
-      defaultText = literalExpression ''!nixarr.jellyfin.vpn.enable'';
+      defaultText = literalExpression ''!nixarr.plex.vpn.enable'';
       default = !cfg.vpn.enable;
       example = true;
-      description = "Open firewall for Jellyfin";
+      description = "Open firewall for Plex";
     };
 
     vpn.enable = mkOption {
@@ -55,9 +55,9 @@ in {
       description = ''
         **Required options:** [`nixarr.vpn.enable`](#nixarr.vpn.enable)
 
-        **Conflicting options:** [`nixarr.jellyfin.expose.https.enable`](#nixarr.jellyfin.expose.https.enable)
+        **Conflicting options:** [`nixarr.plex.expose.https.enable`](#nixarr.plex.expose.https.enable)
 
-        Route Jellyfin traffic through the VPN.
+        Route Plex traffic through the VPN.
       '';
     };
 
@@ -70,15 +70,15 @@ in {
           description = ''
             **Required options:**
 
-            - [`nixarr.jellyfin.expose.https.acmeMail`](#nixarr.jellyfin.expose.https.acmemail)
-            - [`nixarr.jellyfin.expose.https.domainName`](#nixarr.jellyfin.expose.https.domainname)
+            - [`nixarr.plex.expose.https.acmeMail`](#nixarr.plex.expose.https.acmemail)
+            - [`nixarr.plex.expose.https.domainName`](#nixarr.plex.expose.https.domainname)
 
-            **Conflicting options:** [`nixarr.jellyfin.vpn.enable`](#nixarr.jellyfin.vpn.enable)
+            **Conflicting options:** [`nixarr.plex.vpn.enable`](#nixarr.plex.vpn.enable)
 
-            Expose the Jellyfin web service to the internet with https support,
+            Expose the Plex web service to the internet with https support,
             allowing anyone to access it.
 
-            > **Warning:** Do _not_ enable this without setting up Jellyfin
+            > **Warning:** Do _not_ enable this without setting up Plex
             > authentication through localhost first!
           '';
         };
@@ -88,8 +88,8 @@ in {
         domainName = mkOption {
           type = types.nullOr types.str;
           default = null;
-          example = "jellyfin.example.com";
-          description = "The domain name to host Jellyfin on.";
+          example = "plex.example.com";
+          description = "The domain name to host Plex on.";
         };
 
         acmeMail = mkOption {
@@ -107,15 +107,15 @@ in {
       {
         assertion = cfg.vpn.enable -> nixarr.vpn.enable;
         message = ''
-          The nixarr.jellyfin.vpn.enable option requires the
+          The nixarr.plex.vpn.enable option requires the
           nixarr.vpn.enable option to be set, but it was not.
         '';
       }
       {
         assertion = !(cfg.vpn.enable && cfg.expose.https.enable);
         message = ''
-          The nixarr.jellyfin.vpn.enable option conflicts with the
-          nixarr.jellyfin.expose.https.enable option. You cannot set both.
+          The nixarr.plex.vpn.enable option conflicts with the
+          nixarr.plex.expose.https.enable option. You cannot set both.
         '';
       }
       {
@@ -126,11 +126,11 @@ in {
             && (cfg.expose.https.acmeMail != null)
           );
         message = ''
-          The nixarr.jellyfin.expose.https.enable option requires the
+          The nixarr.plex.expose.https.enable option requires the
           following options to be set, but one of them were not:
 
-          - nixarr.jellyfin.expose.domainName
-          - nixarr.jellyfin.expose.acmeMail
+          - nixarr.plex.expose.domainName
+          - nixarr.plex.expose.acmeMail
         '';
       }
     ];
@@ -154,19 +154,16 @@ in {
       "d '${nixarr.mediaDir}/library/books'        0775 streamer  media - -"
     ];
 
-    # Always prioritise Jellyfin IO
-    systemd.services.jellyfin.serviceConfig.IOSchedulingPriority = 0;
+    # Always prioritise Plex IO
+    systemd.services.plex.serviceConfig.IOSchedulingPriority = 0;
 
-    services.jellyfin = {
+    services.plex = {
       enable = cfg.enable;
       package = cfg.package;
       user = "streamer";
       group = "media";
       openFirewall = cfg.openFirewall;
-      logDir = "${cfg.stateDir}/log";
-      cacheDir = "${cfg.stateDir}/cache";
-      dataDir = "${cfg.stateDir}/data";
-      configDir = "${cfg.stateDir}/config";
+      dataDir = cfg.stateDir;
     };
 
     networking.firewall = mkIf cfg.expose.https.enable {
@@ -220,7 +217,7 @@ in {
     };
 
     # Enable and specify VPN namespace to confine service in.
-    systemd.services.jellyfin.vpnConfinement = mkIf cfg.vpn.enable {
+    systemd.services.plex.vpnConfinement = mkIf cfg.vpn.enable {
       enable = true;
       vpnNamespace = "wg";
     };
