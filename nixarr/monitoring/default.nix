@@ -108,6 +108,23 @@ in {
           description = "Port for Prowlarr metrics";
         };
       };
+      autobrr.exporter = {
+        enable = mkOption {
+          type = types.nullOr types.bool;
+          default = null;
+          description = ''
+            Whether to enable the Autobrr Prometheus metrics.
+            - null: enable if exporters.enable is true and autobrr service is enabled (default)
+            - true: force enable if exporters.enable is true
+            - false: always disable
+          '';
+        };
+        port = mkOption {
+          type = types.port;
+          default = 9712;
+          description = "Port for Autobrr metrics";
+        };
+      };
     };
   };
 
@@ -278,6 +295,10 @@ in {
           from = cfg.prowlarr.exporter.port;
           to = cfg.prowlarr.exporter.port;
         })
+        ++ (optional (shouldEnableExporter "autobrr" && isVpnConfined "autobrr") {
+          from = cfg.autobrr.exporter.port;
+          to = cfg.autobrr.exporter.port;
+        })
         ++ [
           {
             from = 9586; # Default Wireguard exporter port
@@ -293,6 +314,14 @@ in {
       ++ (optional (shouldEnableExporter "lidarr" && !isVpnConfined "lidarr") cfg.lidarr.exporter.port)
       ++ (optional (shouldEnableExporter "readarr" && !isVpnConfined "readarr") cfg.readarr.exporter.port)
       ++ (optional (shouldEnableExporter "prowlarr" && !isVpnConfined "prowlarr") cfg.prowlarr.exporter.port)
+      ++ (optional (shouldEnableExporter "autobrr" && !isVpnConfined "autobrr") cfg.autobrr.exporter.port)
     );
+
+    # Configure metrics in autobrr settings when enabled
+    nixarr.autobrr.settings = mkIf (shouldEnableExporter "autobrr") {
+      metricsEnabled = true;
+      metricsHost = if (isVpnConfined "autobrr") then "192.168.15.1" else "127.0.0.1";
+      metricsPort = cfg.autobrr.exporter.port;
+    };
   };
 }

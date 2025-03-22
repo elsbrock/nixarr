@@ -95,6 +95,26 @@ in {
             default = false;
             description = "Check for updates on startup.";
           };
+
+          metricsEnabled = mkOption {
+            type = types.bool;
+            default = false;
+            description = "Enable Prometheus metrics endpoint.";
+          };
+
+          metricsHost = mkOption {
+            type = types.str;
+            default = "127.0.0.1";
+            example = "0.0.0.0";
+            description = "Host to bind metrics server to.";
+          };
+
+          metricsPort = mkOption {
+            type = types.port;
+            default = 9712;
+            example = 9712;
+            description = "Port for metrics server.";
+          };
         };
       };
       default = {};
@@ -155,13 +175,15 @@ in {
     services.autobrr = {
       enable = true;
       package = cfg.package;
-      # We need to provide a secretFile even though we're handling it ourselves
-      secretFile = "/dev/null"; # This is a placeholder that won't be used
+      secretFile = "/dev/null";
       settings = mkMerge [
-        # User settings
         cfg.settings
-        # Override host if VPN is enabled
         (mkIf cfg.vpn.enable {host = "192.168.15.1";})
+        (mkIf (nixarr.exporters.enable && (cfg.exporter.enable == null || cfg.exporter.enable)) {
+          metricsEnabled = true;
+          metricsHost = if cfg.vpn.enable then "192.168.15.1" else "127.0.0.1";
+          metricsPort = cfg.exporter.port;
+        })
       ];
     };
 
