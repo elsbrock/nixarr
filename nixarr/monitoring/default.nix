@@ -16,9 +16,62 @@ with lib; let
   isVpnConfined = service: cfg.${service}.enable && cfg.${service}.vpn.enable;
     
   # Helper function to create a script that extracts API key from config.xml
-  extractApiKey = service: stateDir: pkgs.writeShellScript "extract-${service}-apikey" ''
-    ${pkgs.dasel}/bin/dasel -f ${stateDir}/config.xml -s "//ApiKey"
-  '';
+  extractApiKeys = pkgs.writeShellApplication {
+    name = "extract-monitoring-api-keys";
+    runtimeInputs = with pkgs; [ dasel coreutils ];
+    text = ''
+      # Create state directory for API keys
+      STATE_DIR="/var/lib/exportarr"
+      mkdir -p "$STATE_DIR"
+      chmod 755 "$STATE_DIR"
+
+      # Function to wait for config file and extract API key
+      wait_and_extract() {
+        local service=$1
+        local config_file=$2
+        local max_attempts=30  # 5 minutes (10s * 30)
+        local attempt=0
+
+        echo "Waiting for $service config file..."
+        while [ $attempt -lt $max_attempts ]; do
+          if [ -f "$config_file" ]; then
+            API_KEY_FILE="$STATE_DIR/$service-api-key"
+            if ${pkgs.dasel}/bin/dasel -f "$config_file" -s ".Config.ApiKey" | tr -d '\n\r'> "$API_KEY_FILE" 2>/dev/null; then
+              chmod 400 "$API_KEY_FILE"
+              echo "$service API key extracted successfully"
+              return 0
+            fi
+          fi
+          echo "Waiting for $service config file to be ready... (attempt $((attempt + 1))/$max_attempts)"
+          sleep 10
+          attempt=$((attempt + 1))
+        done
+        echo "Failed to extract $service API key after $max_attempts attempts"
+        return 1
+      }
+
+      # Extract API keys for enabled services
+      ${optionalString (shouldEnableExporter "sonarr") ''
+        wait_and_extract "sonarr" "${cfg.sonarr.stateDir}/config.xml"
+      ''}
+
+      ${optionalString (shouldEnableExporter "radarr") ''
+        wait_and_extract "radarr" "${cfg.radarr.stateDir}/config.xml"
+      ''}
+
+      ${optionalString (shouldEnableExporter "lidarr") ''
+        wait_and_extract "lidarr" "${cfg.lidarr.stateDir}/config.xml"
+      ''}
+
+      ${optionalString (shouldEnableExporter "readarr") ''
+        wait_and_extract "readarr" "${cfg.readarr.stateDir}/config.xml"
+      ''}
+
+      ${optionalString (shouldEnableExporter "prowlarr") ''
+        wait_and_extract "prowlarr" "${cfg.prowlarr.stateDir}/config.xml"
+      ''}
+    '';
+  };
 in {
   config = mkIf (cfg.enable && cfg.monitoring.enable) {
     # Configure Prometheus exporters for Arr services
@@ -28,59 +81,72 @@ in {
         exportarr-sonarr = mkIf (shouldEnableExporter "sonarr") {
           enable = true;
           url = "http://127.0.0.1:8989";
-          apiKey = "!${extractApiKey "sonarr" cfg.sonarr.stateDir}";
+          apiKeyFile = "/var/lib/exportarr/sonarr-api-key";
           port = 9707;
-          environmentFile = null;
         };
         
         exportarr-radarr = mkIf (shouldEnableExporter "radarr") {
           enable = true;
           url = "http://127.0.0.1:7878";
-          apiKey = "!${extractApiKey "radarr" cfg.radarr.stateDir}";
+          apiKeyFile = "/var/lib/exportarr/radarr-api-key";
           port = 9708;
-          environmentFile = null;
         };
         
         exportarr-lidarr = mkIf (shouldEnableExporter "lidarr") {
           enable = true;
           url = "http://127.0.0.1:8686";
-          apiKey = "!${extractApiKey "lidarr" cfg.lidarr.stateDir}";
+          apiKeyFile = "/var/lib/exportarr/lidarr-api-key";
           port = 9709;
-          environmentFile = null;
         };
         
         exportarr-readarr = mkIf (shouldEnableExporter "readarr") {
           enable = true;
           url = "http://127.0.0.1:8787";
-          apiKey = "!${extractApiKey "readarr" cfg.readarr.stateDir}";
+          apiKeyFile = "/var/lib/exportarr/readarr-api-key";
           port = 9710;
-          environmentFile = null;
         };
         
         exportarr-prowlarr = mkIf (shouldEnableExporter "prowlarr") {
           enable = true;
           url = "http://127.0.0.1:9696";
-          apiKey = "!${extractApiKey "prowlarr" cfg.prowlarr.stateDir}";
+          apiKeyFile = "/var/lib/exportarr/prowlarr-api-key";
           port = 9711;
-          environmentFile = null;
         };
         
         # Enable node and systemd exporters by default
         node.enable = true;
         systemd.enable = true;
+
+        # Configure wireguard exporter
+        wireguard = mkIf cfg.vpn.enable {
+          enable = true;
+          openFirewall = false;
+        };
       };
     };
 
-    # Add systemd services for VPN-confined exporters
+    # Add systemd services for VPN-confined exporters and API key setup
     systemd.services = mkMerge [
+      # VPN-confined exporters
       (mkIf cfg.vpn.enable (
         let
           # Create VPN-confined exporter services for each Arr service
           makeVpnExporterService = service: nameInConfig:
             mkIf (isVpnConfined service) {
-              "prometheus-exportarr-${service}-exporter".vpnConfinement = {
-                enable = true;
-                vpnNamespace = "wg";
+              "prometheus-exportarr-${service}-exporter" = {
+                vpnConfinement = {
+                  enable = true;
+                  vpnNamespace = "wg";
+                };
+                # Add proper dependencies
+                requires = [ "prometheus-exportarr-setup.service" ];
+                after = [ "prometheus-exportarr-setup.service" ];
+                serviceConfig = {
+                  DynamicUser = true;
+                  StateDirectory = "exportarr";
+                  LoadCredential = "api-key:/var/lib/exportarr/${service}-api-key";
+                  SupplementaryGroups = [ "exportarr" ];
+                };
               };
             };
         in
@@ -90,29 +156,83 @@ in {
             (makeVpnExporterService "lidarr" "exportarr-lidarr")
             (makeVpnExporterService "readarr" "exportarr-readarr")
             (makeVpnExporterService "prowlarr" "exportarr-prowlarr")
+            {
+              # Add VPN confinement for wireguard exporter
+              prometheus-wireguard-exporter = {
+                vpnConfinement = {
+                  enable = true;
+                  vpnNamespace = "wg";
+                };
+                serviceConfig = {
+                  DynamicUser = true;
+                };
+              };
+            }
           ]
       ))
+
+      # API key setup service
       {
-        prometheus-wireguard-exporter = mkIf cfg.vpn.enable {
-          description = "Prometheus Wireguard Exporter";
-          wantedBy = [ "multi-user.target" ];
-          after = [ "network.target" ];
+        prometheus-exportarr-setup = let
+          # Define the list of services we depend on
+          afterServices = 
+            (optional (shouldEnableExporter "sonarr") "sonarr.service") ++
+            (optional (shouldEnableExporter "radarr") "radarr.service") ++
+            (optional (shouldEnableExporter "lidarr") "lidarr.service") ++
+            (optional (shouldEnableExporter "readarr") "readarr.service") ++
+            (optional (shouldEnableExporter "prowlarr") "prowlarr.service");
+        in {
+          description = "Setup Prometheus Exportarr API keys";
+          before = (optional (shouldEnableExporter "sonarr") "prometheus-exportarr-sonarr-exporter.service") ++
+                  (optional (shouldEnableExporter "radarr") "prometheus-exportarr-radarr-exporter.service") ++
+                  (optional (shouldEnableExporter "lidarr") "prometheus-exportarr-lidarr-exporter.service") ++
+                  (optional (shouldEnableExporter "readarr") "prometheus-exportarr-readarr-exporter.service") ++
+                  (optional (shouldEnableExporter "prowlarr") "prometheus-exportarr-prowlarr-exporter.service");
           
+          # Proper ordering
+          after = afterServices;
+          requires = afterServices;
+
           serviceConfig = {
-            ExecStart = "${pkgs.prometheus-wireguard-exporter}/bin/wireguard_exporter";
-            Restart = "always";
-            DynamicUser = true;
-            ProtectHome = true;
-            ProtectSystem = "full";
-          };
-          
-          # Configure the service to run in the VPN namespace
-          vpnConfinement = {
-            enable = true;
-            vpnNamespace = "wg";
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = "${extractApiKeys}/bin/extract-monitoring-api-keys";
+            User = "root";
+            Group = "root";
           };
         };
+        
+        # Make all exportarr services depend on our setup service
+        "prometheus-exportarr-sonarr-exporter" = mkIf (shouldEnableExporter "sonarr") {
+          wants = [ "prometheus-exportarr-setup.service" ];
+          after = [ "prometheus-exportarr-setup.service" ];
+        };
+        
+        "prometheus-exportarr-radarr-exporter" = mkIf (shouldEnableExporter "radarr") {
+          wants = [ "prometheus-exportarr-setup.service" ];
+          after = [ "prometheus-exportarr-setup.service" ];
+        };
+        
+        "prometheus-exportarr-lidarr-exporter" = mkIf (shouldEnableExporter "lidarr") {
+          wants = [ "prometheus-exportarr-setup.service" ];
+          after = [ "prometheus-exportarr-setup.service" ];
+        };
+        
+        "prometheus-exportarr-readarr-exporter" = mkIf (shouldEnableExporter "readarr") {
+          wants = [ "prometheus-exportarr-setup.service" ];
+          after = [ "prometheus-exportarr-setup.service" ];
+        };
+        
+        "prometheus-exportarr-prowlarr-exporter" = mkIf (shouldEnableExporter "prowlarr") {
+          wants = [ "prometheus-exportarr-setup.service" ];
+          after = [ "prometheus-exportarr-setup.service" ];
+        };
       }
+    ];
+
+    # Create state directory with proper permissions
+    systemd.tmpfiles.rules = [
+      "d /var/lib/exportarr 0750 root root - -"
     ];
     
     # Add port mappings for VPN-confined exporters
