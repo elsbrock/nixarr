@@ -325,7 +325,7 @@ in {
       serviceConfig = {
         # Always prioritize all other services wrt. IO
         IOSchedulingPriority = 7;
-        SupplementaryGroups = ["api-keys"];
+        SupplementaryGroups = mkIf cfg-cross-seed.enable ["prowlarr-api"];
       };
     };
 
