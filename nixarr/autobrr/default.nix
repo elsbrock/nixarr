@@ -138,6 +138,25 @@ in {
       example = "/nixarr/.state/autobrr";
       description = "The location of the state directory for the Autobrr service.";
     };
+
+    exporter = {
+      enable = mkOption {
+        type = types.nullOr types.bool;
+        default = null;
+        example = true;
+        description = ''
+          Whether to enable the Prometheus metrics exporter for Autobrr.
+          If null, follows the global nixarr.exporters.enable setting.
+        '';
+      };
+
+      port = mkOption {
+        type = types.port;
+        default = 9712;
+        example = 9712;
+        description = "Port for the Prometheus metrics exporter.";
+      };
+    };
   };
 
   config = mkIf cfg.enable {
@@ -180,7 +199,7 @@ in {
         cfg.settings
         (mkIf cfg.vpn.enable {host = "192.168.15.1";})
         (mkIf (nixarr.exporters.enable && (cfg.exporter.enable == null || cfg.exporter.enable)) {
-          metricsEnabled = true;
+          metricsEnabled = mkForce true;
           metricsHost = if cfg.vpn.enable then "192.168.15.1" else "127.0.0.1";
           metricsPort = cfg.exporter.port;
         })
