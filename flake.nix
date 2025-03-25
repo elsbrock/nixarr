@@ -34,6 +34,13 @@
   in {
     nixosModules.default.imports = [./nixarr vpnconfinement.nixosModules.default];
 
+    # Add tests attribute to the flake outputs
+    checks = forAllSystems ({pkgs}: {
+      basic-test = pkgs.callPackage ./tests/basic-test.nix {
+        inherit (self) nixosModules;
+      };
+    });
+
     devShells = forAllSystems ({pkgs}: {
       default = pkgs.mkShell {
         packages = with pkgs; [
