@@ -133,23 +133,6 @@ in {
           description = "Address for Prowlarr exporter to listen on";
         };
       };
-      autobrr.exporter = {
-        enable = mkOption {
-          type = types.nullOr types.bool;
-          default = null;
-          description = ''
-            Whether to enable the Autobrr Prometheus metrics.
-            - null: enable if exporters.enable is true and autobrr service is enabled (default)
-            - true: force enable if exporters.enable is true
-            - false: always disable
-          '';
-        };
-        port = mkOption {
-          type = types.port;
-          default = 9712;
-          description = "Port for Autobrr metrics";
-        };
-      };
     };
   };
 
@@ -251,7 +234,7 @@ in {
                 requires = ["${service}-api-key.service"];
                 serviceConfig = {
                   DynamicUser = true;
-                  SupplementaryGroups = ["api-keys"];
+                  SupplementaryGroups = ["${service}-api"];
                 };
               };
             };
@@ -282,22 +265,27 @@ in {
         "prometheus-exportarr-sonarr-exporter" = mkIf (shouldEnableExporter "sonarr" && !isVpnConfined "sonarr") {
           after = ["sonarr-api-key.service"];
           requires = ["sonarr-api-key.service"];
+          serviceConfig.SupplementaryGroups = ["sonarr-api"];
         };
         "prometheus-exportarr-radarr-exporter" = mkIf (shouldEnableExporter "radarr" && !isVpnConfined "radarr") {
           after = ["radarr-api-key.service"];
           requires = ["radarr-api-key.service"];
+          serviceConfig.SupplementaryGroups = ["radarr-api"];
         };
         "prometheus-exportarr-lidarr-exporter" = mkIf (shouldEnableExporter "lidarr" && !isVpnConfined "lidarr") {
           after = ["lidarr-api-key.service"];
           requires = ["lidarr-api-key.service"];
+          serviceConfig.SupplementaryGroups = ["lidarr-api"];
         };
         "prometheus-exportarr-readarr-exporter" = mkIf (shouldEnableExporter "readarr" && !isVpnConfined "readarr") {
           after = ["readarr-api-key.service"];
           requires = ["readarr-api-key.service"];
+          serviceConfig.SupplementaryGroups = ["readarr-api"];
         };
         "prometheus-exportarr-prowlarr-exporter" = mkIf (shouldEnableExporter "prowlarr" && !isVpnConfined "prowlarr") {
           after = ["prowlarr-api-key.service"];
           requires = ["prowlarr-api-key.service"];
+          serviceConfig.SupplementaryGroups = ["prowlarr-api"];
         };
       }
     ];
@@ -325,10 +313,6 @@ in {
           from = cfg.prowlarr.exporter.port;
           to = cfg.prowlarr.exporter.port;
         })
-        ++ (optional (shouldEnableExporter "autobrr" && isVpnConfined "autobrr") {
-          from = cfg.autobrr.exporter.port;
-          to = cfg.autobrr.exporter.port;
-        })
         ++ [
           {
             from = 9586; # Default Wireguard exporter port
@@ -344,14 +328,6 @@ in {
       ++ (optional (shouldEnableExporter "lidarr" && !isVpnConfined "lidarr") cfg.lidarr.exporter.port)
       ++ (optional (shouldEnableExporter "readarr" && !isVpnConfined "readarr") cfg.readarr.exporter.port)
       ++ (optional (shouldEnableExporter "prowlarr" && !isVpnConfined "prowlarr") cfg.prowlarr.exporter.port)
-      ++ (optional (shouldEnableExporter "autobrr" && !isVpnConfined "autobrr") cfg.autobrr.exporter.port)
     );
-
-    # Configure metrics in autobrr settings when enabled
-    nixarr.autobrr.settings = mkIf (shouldEnableExporter "autobrr") {
-      metricsEnabled = true;
-      metricsHost = if (isVpnConfined "autobrr") then "192.168.15.1" else "127.0.0.1";
-      metricsPort = cfg.autobrr.exporter.port;
-    };
   };
 }
